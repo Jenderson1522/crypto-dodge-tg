@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Telegram Arcade - Ranking & Monedas</title>
+    <!-- SDK Oficial de Telegram WebApp -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- SDK de Adsgram -->
+    <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            background-color: #0f0c29;
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+        #gameCanvas {
+            background: linear-gradient(180deg, #0f0c29, #302b63, #24243e);
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        /* HUD Superior */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 15px 20px;
+            pointer-events: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+        .hud-badge {
+            background: rgba(15, 52, 96, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 8px 14px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        .coin-text { color: #ffd700; }
+        
+        /* Modales */
+        .modal {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(22, 33, 62, 0.97);
+            border: 2px solid #1f4068;
+            border-radius: 18px;
+            padding: 22px;
+            text-align: center;
+            width: 90%;
+            max-width: 350px;
+            pointer-events: auto;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.7);
+            display: none;
+            z-index: 20;
+        }
+        .modal.active { display: block; }
+        
+        h2 { margin-bottom: 8px; color: #00f2fe; font-size: 22px; }
+        p { margin-bottom: 16px; font-size: 14px; color: #dcdcdc; line-height: 1.4; }
+        
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            padding: 13px;
+            margin-bottom: 10px;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .btn:active { transform: scale(0.96); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .btn-start { background: linear-gradient(45deg, #00b09b, #96c93d); color: #fff; }
+        .btn-revive { background: linear-gradient(45deg, #f39c12, #e67e22); color: #fff; }
+        .btn-coin-revive { background: #2b3a67; border: 1px solid #ffd700; color: #ffd700; }
+        .btn-restart { background: #e94560; color: #fff; }
+        .btn-rank { background: #1f4068; color: #00f2fe; border: 1px solid #00f2fe; }
+
+        /* Tabla de Ranking */
+        .timer-box {
+            background: rgba(233, 69, 96, 0.15);
+            border: 1px solid #e94560;
+            color: #ff758f;
+            padding: 8px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: bold;
+            margin-bottom: 12px;
+        }
+        .leaderboard-list {
+            max-height: 210px;
+            overflow-y: auto;
+            margin-bottom: 15px;
+            text-align: left;
+        }
+        .rank-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 9px 12px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            margin-bottom: 6px;
+            font-size: 14px;
+        }
+        .rank-item.is-me {
+            background: rgba(0, 242, 254, 0.18);
+            border: 1px solid #00f2fe;
+        }
+        .rank-pos { font-weight: bold; width: 28px; color: #ffd700; }
+        .rank-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .rank-score { font-weight: bold; color: #00f2fe; }
+
+        /* Simulador de Anuncio */
+        #mock-ad-screen {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #000;
+            z-index: 999;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            text-align: center;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- HUD Superior -->
+    <div id="ui-layer">
+        <div class="hud-badge">🏆 <span id="scoreText">0</span></div>
+        <div class="hud-badge coin-text">🪙 <span id="coinsText">0</span></div>
+    </div>
+
+    <!-- Modal Inicio -->
+    <div id="startModal" class="modal active">
+        <h2>🚀 Crypto Dodge</h2>
+        <p>Esquiva bloques rojos y recoge <strong>monedas 🪙</strong>.<br>¡Compite en el torneo de 48 horas!</p>
+        <div class="timer-box">⏳ Torneo termina en: <span class="countdown-text">--:--:--</span></div>
+        <button class="btn btn-start" onclick="startGame()">▶️ Jugar Ahora</button>
+        <button class="btn btn-rank" onclick="openLeaderboard()">🏆 Ver Ranking (Top 2 Días)</button>
+    </div>
+
+    <!-- Modal Game Over -->
+    <div id="gameOverModal" class="modal">
+        <h2 style="color: #e94560;">¡Has perdido!</h2>
+        <p>Puntos: <strong id="finalScore">0</strong> | Mejor marca: <strong id="bestScoreText">0</strong></p>
+        
+        <!-- Opción 1: Revivir viendo anuncio -->
+        <button id="btnReviveAd" class="btn btn-revive" onclick="watchAdToRevive()">
+            📺 Ver Anuncio para Revivir
+        </button>
+
+        <!-- Opción 2: Revivir gastando monedas -->
+        <button id="btnReviveCoins" class="btn btn-coin-revive" onclick="spendCoinsToRevive()">
+            🪙 Revivir (50 Monedas)
+        </button>
+        
+        <!-- Reiniciar con anuncio obligatorio de partida -->
+        <button class="btn btn-restart" onclick="restartWithAd()">
+            🔄 Nueva Partida (Anuncio)
+        </button>
+
+        <button class="btn btn-rank" onclick="openLeaderboard()">
+            🏆 Ranking del Torneo
+        </button>
+    </div>
+
+    <!-- Modal Ranking 2 Días -->
+    <div id="leaderboardModal" class="modal">
+        <h2>🏆 Torneo (Cada 2 Días)</h2>
+        <div class="timer-box">⏳ Reinicio en: <span class="countdown-text">--:--:--</span></div>
+        <div class="leaderboard-list" id="leaderboardList"></div>
+        <button class="btn btn-start" onclick="closeLeaderboard()">Volver</button>
+    </div>
+
+    <!-- Simulador de Anuncio -->
+    <div id="mock-ad-screen">
+        <h2 style="color: #2ecc71;">📢 ANUNCIO PUBLICITARIO</h2>
+        <p id="mock-ad-type" style="margin-top: 10px;">Cargando...</p>
+        <h1 id="mock-ad-timer" style="font-size: 48px; margin: 20px 0;">3</h1>
+        <p style="font-size: 12px; color: #888;">Recompensa +10 🪙 al finalizar</p>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. TELEGRAM & ADSGRAM CONFIG
+        // ==========================================
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        // Obtener datos reales del usuario de Telegram
+        const tgUser = tg.initDataUnsafe?.user;
+        const playerInfo = {
+            id: tgUser ? String(tgUser.id) : "local_player",
+            name: tgUser ? (tgUser.username ? `@${tgUser.username}` : tgUser.first_name) : "Tú (Invitado)"
+        };
+
+        const ADSGRAM_BLOCK_ID = "TU_BLOCK_ID"; 
+        let AdController = null;
+        if (window.Adsgram && ADSGRAM_BLOCK_ID !== "TU_BLOCK_ID") {
+            AdController = window.Adsgram.init({ blockId: ADSGRAM_BLOCK_ID });
+        }
+
+        function showAd(adType, onComplete, onError) {
+            if (AdController) {
+                AdController.show().then(() => {
+                    addCoins(10); // Bonus de monedas por ver anuncio
+                    onComplete();
+                }).catch(() => {
+                    if (onError) onError();
+                    else onComplete();
+                });
+            } else {
+                const mockScreen = document.getElementById('mock-ad-screen');
+                const mockTimer = document.getElementById('mock-ad-timer');
+                const mockTypeText = document.getElementById('mock-ad-type');
+                
+                mockTypeText.innerText = adType === 'revive' 
+                    ? "Anuncio Recompensado: Mira para revivir (+10 🪙)" 
+                    : "Anuncio de Partida: Cargando nuevo juego (+10 🪙)";
+                
+                mockScreen.style.display = 'flex';
+                let seconds = 3;
+                mockTimer.innerText = seconds;
+
+                const interval = setInterval(() => {
+                    seconds--;
+                    mockTimer.innerText = seconds;
+                    if (seconds <= 0) {
+                        clearInterval(interval);
+                        mockScreen.style.display = 'none';
+                        addCoins(10);
+                        onComplete();
+                    }
+                }, 1000);
+            }
+        }
+
+        // ==========================================
+        // 2. SISTEMA DE MONEDAS Y RANKING CADA 2 DÍAS
+        // ==========================================
+        const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000; // 48 horas en milisegundos
+        // Fecha ancla fija para sincronizar ciclos exactos de 2 días globalmente
+        const EPOCH_ANCHOR = new Date('2026-01-01T00:00:00Z').getTime();
+
+        function getCurrentSeasonInfo() {
+            const now = Date.now();
+            const elapsed = now - EPOCH_ANCHOR;
+            const seasonNumber = Math.floor(elapsed / TWO_DAYS_MS);
+            const seasonEnd = EPOCH_ANCHOR + ((seasonNumber + 1) * TWO_DAYS_MS);
+            return { seasonNumber, seasonEnd };
+        }
+
+        // Cargar estado guardado del jugador
+        let userData = JSON.parse(localStorage.getItem('tg_dodge_data')) || {
+            coins: 0,
+            bestScore: 0,
+            seasonNumber: getCurrentSeasonInfo().seasonNumber
+        };
+
+        // Verificar si ya pasaron los 2 días para reiniciar su récord del torneo
+        function checkSeasonReset() {
+            const currentSeason = getCurrentSeasonInfo().seasonNumber;
+            if (userData.seasonNumber !== currentSeason) {
+                userData.seasonNumber = currentSeason;
+                userData.bestScore = 0; // Se reinicia la puntuación del torneo, pero CONSERVA sus monedas
+                saveUserData();
+            }
+        }
+
+        function saveUserData() {
+            localStorage.setItem('tg_dodge_data', JSON.stringify(userData));
+            document.getElementById('coinsText').innerText = userData.coins;
+        }
+
+        function addCoins(amount) {
+            userData.coins += amount;
+            saveUserData();
+        }
+
+        checkSeasonReset();
+        saveUserData();
+
+        // Actualizar reloj regresivo cada segundo
+        setInterval(() => {
+            checkSeasonReset();
+            const { seasonEnd } = getCurrentSeasonInfo();
+            const diff = Math.max(0, seasonEnd - Date.now());
+            
+            const hours = Math.floor(diff / (1000 * 60 * 60));
+            const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+            
+            const formatted = `${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+            document.querySelectorAll('.countdown-text').forEach(el => el.innerText = formatted);
+        }, 1000);
+
+        // Generar y mostrar Ranking (Combinando bots dinámicos de la temporada + puntuación real del usuario)
+        function openLeaderboard() {
+            checkSeasonReset();
+            const season = getCurrentSeasonInfo().seasonNumber;
+            
+            // Rivales de temporada (cambia sus puntajes cada temporada de 2 días)
+            const rivals = [
+                { id: "1", name: "@crypto_king", score: 45 + (season % 15) },
+                { id: "2", name: "Elena_TON", score: 38 + (season % 10) },
+                { id: "3", name: "@alex_dev", score: 29 + (season % 12) },
+                { id: "4", name: "MasterPlayer", score: 21 + (season % 8) },
+                { id: "5", name: "@sofia_99", score: 14 + (season % 6) },
+                { id: playerInfo.id, name: playerInfo.name + " (Tú)", score: userData.bestScore, isMe: true }
+            ];
+
+            // Ordenar de mayor a menor puntuación
+            rivals.sort((a, b) => b.score - a.score);
+
+            const listEl = document.getElementById('leaderboardList');
+            listEl.innerHTML = rivals.map((player, index) => `
+                <div class="rank-item ${player.isMe ? 'is-me' : ''}">
+                    <span class="rank-pos">#${index + 1}</span>
+                    <span class="rank-name">${player.name}</span>
+                    <span class="rank-score">${player.score} pts</span>
+                </div>
+            `).join('');
+
+            document.getElementById('startModal').classList.remove('active');
+            document.getElementById('gameOverModal').classList.remove('active');
+            document.getElementById('leaderboardModal').classList.add('active');
+        }
+
+        function closeLeaderboard() {
+            document.getElementById('leaderboardModal').classList.remove('active');
+            if (score > 0 && !gameRunning) {
+                document.getElementById('gameOverModal').classList.add('active');
+            } else {
+                document.getElementById('startModal').classList.add('active');
+            }
+        }
+
+        // ==========================================
+        // 3. MOTOR DEL JUEGO
+        // ==========================================
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        let gameRunning = false;
+        let score = 0;
+        let hasRevived = false;
+        let speed = 5;
+        let obstacles = [];
+        let coinsOnScreen = [];
+        let animationId;
+
+        const player = {
+            x: canvas.width / 2,
+            y: canvas.height - 120,
+            radius: 18,
+            targetX: canvas.width / 2,
+            color: '#00f2fe'
+        };
+
+        window.addEventListener('pointerdown', (e) => {
+            if (!gameRunning) return;
+            player.targetX = e.clientX;
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+        });
+
+        function startGame() {
+            checkSeasonReset();
+            document.getElementById('startModal').classList.remove('active');
+            document.getElementById('gameOverModal').classList.remove('active');
+            document.getElementById('leaderboardModal').classList.remove('active');
+            
+            score = 0;
+            speed = 5;
+            obstacles = [];
+            coinsOnScreen = [];
+            hasRevived = false;
+            player.x = canvas.width / 2;
+            player.targetX = canvas.width / 2;
+            
+            document.getElementById('scoreText').innerText = score;
+            gameRunning = true;
+            loop();
+        }
+
+        function executeRevive() {
+            obstacles = obstacles.filter(obs => obs.y < canvas.height / 2);
+            hasRevived = true;
+            document.getElementById('gameOverModal').classList.remove('active');
+            gameRunning = true;
+            loop();
+        }
+
+        function watchAdToRevive() {
+            showAd('revive', () => {
+                executeRevive();
+            }, () => {
+                alert("Debes ver el anuncio completo para revivir.");
+            });
+        }
+
+        function spendCoinsToRevive() {
+            if (userData.coins >= 50) {
+                addCoins(-50);
+                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                executeRevive();
+            }
+        }
+
+        function restartWithAd() {
+            showAd('interstitial', () => {
+                startGame();
+            });
+        }
+
+        function spawnEntities() {
+            // Obstáculos rojos
+            if (Math.random() < 0.04 + (score * 0.0005)) {
+                const width = Math.random() * 80 + 40;
+                obstacles.push({
+                    x: Math.random() * (canvas.width - width),
+                    y: -30,
+                    width: width,
+                    height: 24,
+                    color: '#e94560'
+                });
+            }
+            // Monedas doradas coleccionables
+            if (Math.random() < 0.025) {
+                coinsOnScreen.push({
+                    x: Math.random() * (canvas.width - 40) + 20,
+                    y: -20,
+                    radius: 12
+                });
+            }
+        }
+
+        function update() {
+            player.x += (player.targetX - player.x) * 0.15;
+            spawnEntities();
+
+            // Actualizar Monedas
+            for (let i = coinsOnScreen.length - 1; i >= 0; i--) {
+                let c = coinsOnScreen[i];
+                c.y += speed * 0.9;
+
+                const dist = Math.hypot(player.x - c.x, player.y - c.y);
+                if (dist <= player.radius + c.radius) {
+                    coinsOnScreen.splice(i, 1);
+                    addCoins(5); // Cada moneda recogida vale 5 monedas
+                    if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+                    continue;
+                }
+                if (c.y > canvas.height + 20) coinsOnScreen.splice(i, 1);
+            }
+
+            // Actualizar Obstáculos
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                let obs = obstacles[i];
+                obs.y += speed;
+
+                let testX = Math.max(obs.x, Math.min(player.x, obs.x + obs.width));
+                let testY = Math.max(obs.y, Math.min(player.y, obs.y + obs.height));
+                let distance = Math.hypot(player.x - testX, player.y - testY);
+
+                if (distance <= player.radius) {
+                    gameOver();
+                    return;
+                }
+
+                if (obs.y > canvas.height) {
+                    obstacles.splice(i, 1);
+                    score++;
+                    document.getElementById('scoreText').innerText = score;
+                    if (score % 10 === 0) speed += 0.5;
+                }
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Dibujar Jugador
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+            ctx.fillStyle = player.color;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = player.color;
+            ctx.fill();
+            ctx.closePath();
+            ctx.shadowBlur = 0;
+
+            // Dibujar Monedas
+            coinsOnScreen.forEach(c => {
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffd700';
+                ctx.fill();
+                ctx.strokeStyle = '#ff9900';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.closePath();
+                
+                ctx.fillStyle = '#7a4900';
+                ctx.font = 'bold 12px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('$', c.x, c.y);
+            });
+
+            // Dibujar Obstáculos
+            obstacles.forEach(obs => {
+                ctx.fillStyle = obs.color;
+                ctx.beginPath();
+                ctx.roundRect(obs.x, obs.y, obs.width, obs.height, 6);
+                ctx.fill();
+            });
+        }
+
+        function loop() {
+            if (!gameRunning) return;
+            update();
+            draw();
+            if (gameRunning) animationId = requestAnimationFrame(loop);
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            cancelAnimationFrame(animationId);
+            if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
+            
+            // Actualizar récord de la temporada de 2 días
+            if (score > userData.bestScore) {
+                userData.bestScore = score;
+                saveUserData();
+            }
+
+            document.getElementById('finalScore').innerText = score;
+            document.getElementById('bestScoreText').innerText = userData.bestScore;
+            
+            // Controlar botones de revivir
+            const btnAd = document.getElementById('btnReviveAd');
+            const btnCoins = document.getElementById('btnReviveCoins');
+            
+            if (hasRevived) {
+                btnAd.style.display = 'none';
+                btnCoins.style.display = 'none';
+            } else {
+                btnAd.style.display = 'flex';
+                btnCoins.style.display = 'flex';
+                btnCoins.disabled = userData.coins < 50;
+            }
+
+            document.getElementById('gameOverModal').classList.add('active');
+        }
+    </script>
+</body>
+</html>
